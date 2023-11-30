@@ -9,7 +9,11 @@ import { ExplorerError } from '../../common/ExplorerError';
 import { explorerError } from '../../common/ExplorerMessage';
 import * as FabricConst from './utils/FabricConst';
 import { SyncPlatform } from './sync/SyncPlatform';
-import { convertValidationCode, jsonObjSize, SyncServices } from './sync/SyncService';
+import {
+	convertValidationCode,
+	jsonObjSize,
+	SyncServices
+} from './sync/SyncService';
 import * as sha from 'js-sha256';
 import * as FabricUtils from './utils/FabricUtils';
 
@@ -112,7 +116,9 @@ export class Proxy {
 	async getPeersStatus(network_id, channel_genesis_hash) {
 		const client = await this.platform.getClient(network_id);
 		const channel_name = client.getChannelNameByHash(channel_genesis_hash);
-		let orderersList = await client.fabricGateway.getActiveOrderersList(channel_name);
+		let orderersList = await client.fabricGateway.getActiveOrderersList(
+			channel_name
+		);
 		const nodes = await this.persistence
 			.getMetricService()
 			.getPeerList(network_id, channel_genesis_hash);
@@ -128,10 +134,10 @@ export class Proxy {
 		const peers = [];
 
 		for (const node of nodes) {
-			 node.status = "";
+			node.status = '';
 			if (node.peer_type === 'PEER') {
 				if (discover_results && discover_results.peers_by_org) {
-					node.status = "DOWN";
+					node.status = 'DOWN';
 					const org = discover_results.peers_by_org[node.mspid];
 					if (org === undefined) {
 						continue;
@@ -141,7 +147,7 @@ export class Proxy {
 							node.ledger_height_low = peer.ledgerHeight.low;
 							node.ledger_height_high = peer.ledgerHeight.high;
 							node.ledger_height_unsigned = peer.ledgerHeight.unsigned;
-							node.status = 'UP';	
+							node.status = 'UP';
 						}
 					}
 				}
@@ -169,7 +175,7 @@ export class Proxy {
 						}
 					}
 				}
-				peers.push(node);			
+				peers.push(node);
 			}
 		}
 
@@ -188,6 +194,50 @@ export class Proxy {
 		return channel_genesis_hash;
 	}
 
+	async getAgoTime(network, channel_genesis_hash) {
+		const data = await this.persistence
+			.getCrudService()
+			.getBlockByCreationTime(network, channel_genesis_hash);
+		const currentDate = new Date();
+		let ago_time: string = '';
+
+		if (null == data.max) {
+			logger.error('Failed to get latest block time');
+			return ago_time;
+		}
+		const latestBlockTime = new Date(data.max);
+
+		if (currentDate.getFullYear() - latestBlockTime.getFullYear() > 0) {
+			ago_time +=
+				currentDate.getFullYear() - latestBlockTime.getFullYear() + ' yr ago';
+		} else if (
+			currentDate.getMonth() - latestBlockTime.getMonth() > 0 &&
+			currentDate.getMonth() - latestBlockTime.getMonth() < 12
+		) {
+			ago_time +=
+				currentDate.getMonth() - latestBlockTime.getMonth() + 1 + ' mon ago';
+		} else if (
+			currentDate.getDate() - latestBlockTime.getDate() > 0 &&
+			currentDate.getDate() - latestBlockTime.getDate() < 31
+		) {
+			ago_time += currentDate.getDate() - latestBlockTime.getDate() + ' day ago';
+		} else if (
+			currentDate.getHours() - latestBlockTime.getHours() > 0 &&
+			currentDate.getHours() - latestBlockTime.getHours() < 24
+		) {
+			ago_time += currentDate.getHours() - latestBlockTime.getHours() + ' hr ago';
+		} else if (
+			currentDate.getMinutes() - latestBlockTime.getMinutes() > 0 &&
+			currentDate.getMinutes() - latestBlockTime.getMinutes() < 60
+		) {
+			ago_time +=
+				currentDate.getMinutes() - latestBlockTime.getMinutes() + ' min ago';
+		} else {
+			ago_time +=
+				currentDate.getSeconds() - latestBlockTime.getSeconds() + ' sec ago';
+		}
+		return ago_time;
+	}
 	/**
 	 *
 	 *
@@ -208,6 +258,12 @@ export class Proxy {
 			) {
 				currentchannels.push(channel);
 			}
+		}
+		for (const channel of currentchannels) {
+			channel.ago = await this.getAgoTime(
+				network_id,
+				channel.channel_genesis_hash
+			);
 		}
 		logger.debug('getChannelsInfo >> %j', currentchannels);
 		return currentchannels;
@@ -418,7 +474,11 @@ export class Proxy {
 	 * @returns
 	 * @memberof Proxy
 	 */
-	async fetchDataByBlockNo(network_id: string, channel_genesis_hash: string, blockNo: number) {
+	async fetchDataByBlockNo(
+		network_id: string,
+		channel_genesis_hash: string,
+		blockNo: number
+	) {
 		return await this.dataByBlockNo(network_id, channel_genesis_hash, blockNo);
 	}
 
@@ -430,22 +490,32 @@ export class Proxy {
 	 * @returns
 	 * @memberof Proxy
 	 */
-	async fetchDataByTxnId(network_id: string, channel_genesis_hash: string, txnId: string) {
-		const results = await this.persistence.getCrudService().getTransactionByID(network_id, channel_genesis_hash, txnId);
+	async fetchDataByTxnId(
+		network_id: string,
+		channel_genesis_hash: string,
+		txnId: string
+	) {
+		const results = await this.persistence
+			.getCrudService()
+			.getTransactionByID(network_id, channel_genesis_hash, txnId);
 		if (results == null) {
 			return await this.queryTxFromLedger(network_id, channel_genesis_hash, txnId);
 		}
 		return results;
 	}
 
-	async queryTxFromLedger(network_id: string, channel_genesis_hash: string, txnId: string) {
-		let syncPlatform = new SyncPlatform(this.persistence, null)
+	async queryTxFromLedger(
+		network_id: string,
+		channel_genesis_hash: string,
+		txnId: string
+	) {
+		let syncPlatform = new SyncPlatform(this.persistence, null);
 		let sync = new SyncServices(syncPlatform, this.persistence);
 		const client = this.platform.getClient(network_id);
 		const channel_name = client.getChannelNameByHash(channel_genesis_hash);
 		try {
 			const txn = await client.fabricGateway.queryTransaction(channel_name, txnId);
-			logger.info("Transaction details from query Transaction ", txn);
+			logger.info('Transaction details from query Transaction ', txn);
 			if (txn) {
 				//Formatting of transaction details
 				const txObj = txn.transactionEnvelope;
@@ -518,13 +588,12 @@ export class Proxy {
 					readSet,
 					writeSet,
 					validation_code,
-					payload_proposal_hash,
+					payload_proposal_hash
 				};
 				return transaction;
 			}
 			return txn;
-		}
-		catch (e) {
+		} catch (e) {
 			logger.debug('No transaction found with this txn id >> ', e);
 		}
 	}
@@ -538,15 +607,23 @@ export class Proxy {
 	 * @returns
 	 * @memberof Proxy
 	 */
-	async fetchDataByBlockRange(network_id: string, channel_genesis_hash: string, startBlockNo: number, endBlockNo: number) {
-		let blockValue, blockArray = [];
+	async fetchDataByBlockRange(
+		network_id: string,
+		channel_genesis_hash: string,
+		startBlockNo: number,
+		endBlockNo: number
+	) {
+		let blockValue,
+			blockArray = [];
 		for (let index = startBlockNo; index <= endBlockNo; index++) {
-			blockValue = await this.dataByBlockNo(network_id, channel_genesis_hash, index);
-			if (blockValue != "response_payloads is null") {
+			blockValue = await this.dataByBlockNo(
+				network_id,
+				channel_genesis_hash,
+				index
+			);
+			if (blockValue != 'response_payloads is null') {
 				blockArray.push(blockValue);
-			}
-			else
-				break;
+			} else break;
 		}
 		if (blockArray.length > 0) {
 			return blockArray;
@@ -555,15 +632,25 @@ export class Proxy {
 	}
 
 	//Re-usable component to fetch data using block no and block range
-	async dataByBlockNo(network_id: string, channel_genesis_hash: string, blockNo: number) {
+	async dataByBlockNo(
+		network_id: string,
+		channel_genesis_hash: string,
+		blockNo: number
+	) {
 		const client = this.platform.getClient(network_id);
 		const channel_name = client.getChannelNameByHash(channel_genesis_hash);
 		//fetch data from postgress
-		const results = await this.persistence.getCrudService().getBlockByBlocknum(network_id, channel_genesis_hash, blockNo);
+		const results = await this.persistence
+			.getCrudService()
+			.getBlockByBlocknum(network_id, channel_genesis_hash, blockNo);
 		if (results == null) {
-			const block = await this.getBlockByNumber(network_id, channel_genesis_hash, blockNo);
-			if (block != "response_payloads is null") {
-				logger.info("block details from gateway", block);
+			const block = await this.getBlockByNumber(
+				network_id,
+				channel_genesis_hash,
+				blockNo
+			);
+			if (block != 'response_payloads is null') {
+				logger.info('block details from gateway', block);
 				const first_tx = block.data.data[0];
 				const header = first_tx.payload.header;
 				const createdt = await FabricUtils.getBlockTimeStamp(
@@ -597,7 +684,7 @@ export class Proxy {
 		}
 		return results;
 	}
-	
+
 	/*
 	 * @param {*} contract_name
 	 * @returns
@@ -605,13 +692,18 @@ export class Proxy {
 	 */
 	async getContractMetadata(network_id, contract_name, channel_genesis_hash) {
 		const client = this.platform.getClient(network_id);
-		const channel_name =  client.getChannelNameByHash(channel_genesis_hash);
+		const channel_name = client.getChannelNameByHash(channel_genesis_hash);
 		let metadata;
 		try {
-			metadata = await client.fabricGateway.queryContractMetadata(channel_name, contract_name, channel_genesis_hash);
-			} catch (e) {
+			metadata = await client.fabricGateway.queryContractMetadata(
+				channel_name,
+				contract_name,
+				channel_genesis_hash
+			);
+		} catch (e) {
 			logger.debug('getContractMetadata >> ', e);
-		} if (metadata) {
+		}
+		if (metadata) {
 			return metadata;
 		}
 		logger.error('response_payloads is null');
