@@ -18,3 +18,7 @@ export const fabric = {
 		NOTITY_TYPE_CLIENTERROR: '6'
 	}
 };
+// export enum BootModes {
+// 	'ALL',
+// 	'CUSTOM'
+// }

@@ -5,6 +5,10 @@
 import fabprotos from 'fabric-protos';
 import includes from 'lodash/includes';
 import * as sha from 'js-sha256';
+
+// import * as PATH from 'path';//.....// BootTime-feature
+// import * as fs from 'fs';//.........
+
 import { helper } from '../../../common/helper';
 
 import { ExplorerError } from '../../../common/ExplorerError';
@@ -15,6 +19,12 @@ import * as FabricUtils from '../../../platform/fabric/utils/FabricUtils';
 const logger = helper.getLogger('SyncServices');
 
 const fabric_const = FabricConst.fabric.const;
+
+// const config_path = PATH.resolve(__dirname, '../config.json');//.........// BootTime-feature
+// const all_config = JSON.parse(fs.readFileSync(config_path, 'utf8'));
+// const network_configs = all_config[fabric_const.NETWORK_CONFIGS];
+
+// const boot_modes = FabricConst.BootModes;//..............//./
 
 // Transaction validation code
 const _validation_codes = {};
@@ -402,6 +412,118 @@ export class SyncServices {
 		const index = this.synchInProcess.indexOf(synch_key);
 		this.synchInProcess.splice(index, 1);
 		logger.info(`syncBlocks: Finish >> ${synch_key}`);
+
+		// BootTime-feature.......................................................
+		// const network_id = client.getNetworkId();
+		// const synch_key = `${network_id}_${channel_name}`;
+
+		// // Check if block synchronization is already in process
+		// if (this.synchInProcess.includes(synch_key)) {
+		// 	logger.info(`syncBlocks: Block sync in process for >> ${synch_key}`);
+		// 	return;
+		// }
+		// try {
+		// 	// Get channel information from ledger
+		// 	const channelInfo = await client.fabricGateway.queryChainInfo(channel_name);
+		// 	if (!channelInfo) {
+		// 		logger.info(
+		// 			`syncBlocks: Failed to retrieve channelInfo >> ${channel_name}`
+		// 		);
+		// 		return;
+		// 	}
+
+		// 	// Getting necessary information from configuration file
+		// 	const bootMode = network_configs[network_id].bootMode.toUpperCase();
+		// 	const channel_genesis_hash = client.getChannelGenHash(channel_name);
+		// 	const latestBlockHeight = parseInt(channelInfo.height.low) - 1;
+
+		// 	// Get the value of noOfBlocks from configuration file
+		// 	let noOfBlocks = 0;
+
+		// 	if (bootMode === boot_modes[0]) {
+		// 		// Sync all available blocks
+		// 		noOfBlocks = latestBlockHeight + 1;
+		// 	} else if (bootMode === boot_modes[1]) {
+		// 		// Get the value of noOfBlocks from configuration file
+		// 		noOfBlocks = parseInt(network_configs[network_id].noOfBlocks);
+
+		// 		if (isNaN(noOfBlocks)) {
+		// 			logger.error(
+		// 				'Invalid noOfBlocks configuration, please either provide in numeric eg: (1) or ("1")'
+		// 			);
+		// 			return;
+		// 		}
+		// 	}
+
+		// 	// Calculate the starting block height for sync
+		// 	const startingBlockHeight = Math.max(0, latestBlockHeight - noOfBlocks + 1);
+
+		// 	// Syncing Details
+		// 	logger.info(
+		// 		`Syncing blocks from ${startingBlockHeight} to ${latestBlockHeight}`
+		// 	);
+
+		// 	// Load the latest blocks as per the configuration
+		// 	for (
+		// 		let blockHeight = latestBlockHeight;
+		// 		blockHeight >= startingBlockHeight;
+		// 		blockHeight--
+		// 	) {
+		// 		try {
+		// 			const [block, isBlockAvailable] = await Promise.all([
+		// 				client.fabricGateway.queryBlock(channel_name, blockHeight),
+		// 				this.persistence
+		// 					.getCrudService()
+		// 					.isBlockAvailableInDB(channel_genesis_hash, blockHeight)
+		// 			]);
+
+		// 			if (block && !isBlockAvailable) {
+		// 				await this.processBlockEvent(client, block, noDiscovery);
+		// 			}
+		// 			logger.info(`Synced block #${blockHeight}`);
+		// 		} catch {
+		// 			logger.error(`Failed to process Block # ${blockHeight}`);
+		// 		}
+		// 	}
+
+		// 	const missingBlocks = await this.persistence
+		// 		.getMetricService()
+		// 		.findMissingBlockNumber(
+		// 			network_id,
+		// 			channel_genesis_hash,
+		// 			latestBlockHeight
+		// 		);
+
+		// 	if (missingBlocks) {
+		// 		// Filter missing blocks to start syncing from 'startingBlockHeight'
+		// 		const missingBlocksToSync = missingBlocks.filter(
+		// 			missingBlock => missingBlock.missing_id >= startingBlockHeight
+		// 		);
+		// 		for (const missingBlock of missingBlocksToSync) {
+		// 			try {
+		// 				const block = await client.fabricGateway.queryBlock(
+		// 					channel_name,
+		// 					missingBlock.missing_id
+		// 				);
+		// 				if (block) {
+		// 					await this.processBlockEvent(client, block, noDiscovery);
+		// 				}
+		// 				logger.info(`Synced missing block #${missingBlock.missing_id}`);
+		// 			} catch {
+		// 				logger.error(
+		// 					`Failed to process Missing Block # ${missingBlock.missing_id}`
+		// 				);
+		// 			}
+		// 		}
+		// 	} else {
+		// 		logger.debug('Missing blocks not found for %s', channel_name);
+		// 	}
+		// 	const index = this.synchInProcess.indexOf(synch_key);
+		// 	this.synchInProcess.splice(index, 1);
+		// 	logger.info(`syncBlocks: Finish >> ${synch_key}`);
+		// } catch (error) {
+		// 	logger.error(`Error in syncBlocks: ${error}`);
+		// }
 	}
 
 	async updateDiscoveredChannel(client, channel_name, channel_genesis_hash) {
@@ -765,6 +887,196 @@ export class SyncServices {
 	 */
 	getPersistence() {
 		return this.persistence;
+	}
+
+	async getMissingBlocks(client, channel_name) {
+		const channelInfo = await client.fabricGateway.queryChainInfo(channel_name);
+
+		if (!channelInfo) {
+			logger.info(`syncBlocks: Failed to retrieve channelInfo >> ${channel_name}`);
+			return;
+		}
+		const channel_genesis_hash = client.getChannelGenHash(channel_name);
+		const blockHeight = parseInt(channelInfo.height.low) - 1;
+		// Query missing blocks from DB
+		// const results = await this.persistence	//...........//
+		// 	.getMetricService()
+		// 	.findMissingBlockNumber(network_id, channel_genesis_hash, blockHeight);
+		const blockList = [];
+		// if (results) {//.......
+		for (let i = 1; i <= blockHeight; i++) {
+			// for (const result of results) { //.........//
+			// Get block by number
+			try {
+				const block = await client.fabricGateway.queryBlock(channel_name, i); //.............//
+				if (block) {
+					const first_tx = block.data.data[0];
+					const header = first_tx.payload.header;
+					const channel_name = header.channel_header.channel_id;
+					const channel_genesis_hash = client.getChannelGenHash(channel_name);
+
+					const txnList = []; //............//
+					const txLen = block.data.data.length;
+					for (let txIndex = 0; txIndex < txLen; txIndex++) {
+						const txObj = block.data.data[txIndex];
+						const txStr = JSON.stringify(txObj);
+						const size = Buffer.byteLength(txStr);
+						let txid = txObj.payload.header.channel_header.tx_id;
+
+						let validation_code = '';
+						let endorser_signature = '';
+						let payload_proposal_hash = '';
+						let endorser_id_bytes = '';
+						let chaincode_proposal_input = '';
+						let chaincode = '';
+						let rwset;
+						let readSet;
+						let writeSet;
+						let chaincodeID;
+						let status;
+						let mspId = [];
+						let chaincodeversion: String;
+
+						this.convertFormatOfValue(
+							'value',
+							client.fabricGateway.fabricConfig.getRWSetEncoding(),
+							txObj
+						);
+						if (txid && txid !== '') {
+							const validation_codes =
+								block.metadata.metadata[
+									fabprotos.common.BlockMetadataIndex.TRANSACTIONS_FILTER
+								];
+							const val_code = validation_codes[txIndex];
+							validation_code = convertValidationCode(val_code);
+						}
+						let envelope_signature = txObj.signature;
+						if (envelope_signature !== undefined) {
+							envelope_signature = Buffer.from(
+								JSON.stringify(envelope_signature)
+							).toString('hex');
+						}
+						let payload_extension = txObj.payload.header.channel_header.extension;
+						if (payload_extension !== undefined) {
+							payload_extension = Buffer.from(
+								JSON.stringify(payload_extension)
+							).toString('hex');
+						}
+						let creator_nonce = txObj.payload.header.signature_header.nonce;
+						if (creator_nonce !== undefined) {
+							creator_nonce = Buffer.from(JSON.stringify(creator_nonce)).toString(
+								'hex'
+							);
+						}
+						/* eslint-disable */
+						const creator_id_bytes =
+							txObj.payload.header.signature_header.creator.id_bytes;
+						if (txObj.payload.data.actions !== undefined) {
+							chaincode =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.chaincode_id.name;
+							chaincodeID = new Uint8Array(
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload.extension
+							);
+							chaincodeversion =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.chaincode_id.version;
+							status =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.response.status;
+							mspId = txObj.payload.data.actions[0].payload.action.endorsements.map(
+								endorsement => endorsement.endorser.mspid
+							);
+							rwset =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.results.ns_rwset;
+							readSet = rwset.map(rw => ({
+								chaincode: rw.namespace,
+								set: rw.rwset.reads
+							}));
+							writeSet = rwset.map(rw => ({
+								chaincode: rw.namespace,
+								set: rw.rwset.writes
+							}));
+							chaincode_proposal_input =
+								txObj.payload.data.actions[0].payload.chaincode_proposal_payload.input
+									.chaincode_spec.input.args;
+							if (chaincode_proposal_input !== undefined) {
+								let inputs = '';
+								for (const input of chaincode_proposal_input) {
+									inputs =
+										(inputs === '' ? inputs : `${inputs},`) +
+										Buffer.from(JSON.stringify(input)).toString('hex');
+								}
+								chaincode_proposal_input = inputs;
+							}
+							endorser_signature =
+								txObj.payload.data.actions[0].payload.action.endorsements[0].signature;
+							if (endorser_signature !== undefined) {
+								endorser_signature = Buffer.from(
+									JSON.stringify(endorser_signature)
+								).toString('hex');
+							}
+							payload_proposal_hash = txObj.payload.data.actions[0].payload.action.proposal_response_payload.proposal_hash.toString(
+								'hex'
+							);
+							endorser_id_bytes =
+								txObj.payload.data.actions[0].payload.action.endorsements[0].endorser
+									.IdBytes;
+						}
+
+						if (txObj.payload.header.channel_header.typeString === 'CONFIG') {
+							txid = sha.sha256(txStr);
+							readSet =
+								txObj.payload.data.last_update.payload?.data.config_update.read_set;
+							writeSet =
+								txObj.payload.data.last_update.payload?.data.config_update.write_set;
+						}
+
+						const read_set = JSON.stringify(readSet, null, 2);
+						const write_set = JSON.stringify(writeSet, null, 2);
+
+						const chaincode_id = String.fromCharCode.apply(null, chaincodeID);
+
+						/* eslint-enable */
+						const transaction_row = {
+							blockid: block.header.number.toString(),
+							txhash: txid,
+							createdt: txObj.payload.header.channel_header.timestamp,
+							chaincodename: chaincode,
+							chaincode_id,
+							status,
+							creator_msp_id: txObj.payload.header.signature_header.creator.mspid,
+							endorser_msp_id: mspId,
+							type: txObj.payload.header.channel_header.typeString,
+							read_set,
+							write_set,
+							channel_genesis_hash,
+							validation_code,
+							envelope_signature,
+							payload_extension,
+							creator_nonce,
+							chaincode_proposal_input,
+							endorser_signature,
+							creator_id_bytes,
+							payload_proposal_hash,
+							endorser_id_bytes
+						};
+
+						txnList.push(transaction_row);
+						logger.info('txn data pushed');
+					}
+					blockList.push(txnList);
+					logger.info('block data pushed');
+				}
+			} catch {
+				logger.error(`Failed to process Block # ${i}`); //..........//
+			}
+		}
+		return blockList;
+		// } else {
+		logger.debug('Missing blocks not found for %s', channel_name);
+		// }
 	}
 }
 // Transaction validation code
