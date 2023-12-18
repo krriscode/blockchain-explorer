@@ -27,6 +27,7 @@ export class Proxy {
 	persistence: any;
 	broadcaster: any;
 	userService: any;
+	blockList : any
 
 	/**
 	 * Creates an instance of Proxy.
@@ -38,6 +39,7 @@ export class Proxy {
 		this.persistence = platform.getPersistence();
 		this.broadcaster = platform.getBroadcaster();
 		this.userService = userService;
+		this.blockList = [];
 	}
 
 	/**
@@ -467,6 +469,7 @@ export class Proxy {
 		if (results == null) {
 			return await this.queryTxFromLedger(network_id, channel_genesis_hash, txnId);
 		}
+		console.log("fetch data from db : "+results.txhash);
 		return results;
 	}
 
@@ -476,6 +479,25 @@ export class Proxy {
 		const client = this.platform.getClient(network_id);
 		const channel_name = client.getChannelNameByHash(channel_genesis_hash);
 		try {
+			if(txnId.length<64){
+				if(this.blockList.length){
+					const txn = await this.getTxndata(this.blockList, txnId);
+					if(txn){
+						logger.info("Transaction details from Blocks data ", txn);
+						console.log("fetch from proxy-blocks : "+txn[0].txhash);
+						return txn;
+					}
+				}	// Get Missing Blocks Txn from Ledger
+				this.blockList = await sync.getMissingBlocks(client, channel_name);
+				if(this.blockList){
+					const txn = await this.getTxndata(this.blockList, txnId);
+					logger.info("Transaction details from Ledger data ", txn);
+					console.log("fetch from Missing-Blocks ledger : "+txn[0].txhash);
+					return txn;
+				} else {
+					logger.debug("blocks data not found");
+				}				
+			}
 			const txn = await client.fabricGateway.queryTransaction(channel_name, txnId);
 			logger.info("Transaction details from query Transaction ", txn);
 			if (txn) {
@@ -552,6 +574,7 @@ export class Proxy {
 					validation_code,
 					payload_proposal_hash,
 				};
+				console.log("fetch GetTxnById from ledger : : "+transaction.txhash);
 				return transaction;
 			}
 			return txn;
@@ -560,7 +583,21 @@ export class Proxy {
 			logger.debug('No transaction found with this txn id >> ', e);
 		}
 	}
-
+	async getTxndata(blocksList, txnId){
+		const list = [];
+		for(const blkTxnList of blocksList){
+			for(const txn_row of blkTxnList){
+				if(txn_row.txhash.includes(txnId)){
+					console.log("		Txn data Found : "+txn_row.txhash);
+					list.push(txn_row);
+				}
+			}
+		}
+		if(list.length){
+			return list;
+		}
+		return null;
+	}
 	/**
 	 *
 	 *

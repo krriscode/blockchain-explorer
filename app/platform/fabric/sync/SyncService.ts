@@ -766,6 +766,202 @@ export class SyncServices {
 	getPersistence() {
 		return this.persistence;
 	}
+	
+	/**
+	 *
+	 *
+	 * @returns
+	 * @memberof SyncServices
+	 */
+	async getMissingBlocks(client, channel_name) {
+		const network_id = client.getNetworkId();
+		const channelInfo = await client.fabricGateway.queryChainInfo(channel_name);
+
+		if (!channelInfo) {
+			logger.info(`syncBlocks: Failed to retrieve channelInfo >> ${channel_name}`);
+			return;
+		}
+		const channel_genesis_hash = client.getChannelGenHash(channel_name);
+		const blockHeight = parseInt(channelInfo.height.low) - 1;
+
+		// Query missing blocks from DB
+		const results = await this.persistence
+			.getMetricService().findMissingBlockNumber(network_id, channel_genesis_hash, blockHeight);
+
+		const blockList = [];
+
+		if (results) {
+		for (const result of results) { 
+			// Get block by number
+			try {
+				const block = await client.fabricGateway.queryBlock(channel_name, result.missing_id);
+				if (block) {
+					const first_tx = block.data.data[0];
+					const header = first_tx.payload.header;
+					const channel_name = header.channel_header.channel_id;
+					const channel_genesis_hash = client.getChannelGenHash(channel_name);
+
+					const txnList = [];
+					const txLen = block.data.data.length;
+					for (let txIndex = 0; txIndex < txLen; txIndex++) {
+						const txObj = block.data.data[txIndex];
+						const txStr = JSON.stringify(txObj);
+						const size = Buffer.byteLength(txStr);
+						let txid = txObj.payload.header.channel_header.tx_id;
+
+						let validation_code = '';
+						let endorser_signature = '';
+						let payload_proposal_hash = '';
+						let endorser_id_bytes = '';
+						let chaincode_proposal_input = '';
+						let chaincode = '';
+						let rwset;
+						let readSet;
+						let writeSet;
+						let chaincodeID;
+						let status;
+						let mspId = [];
+						let chaincodeversion: String;
+
+						this.convertFormatOfValue(
+							'value',
+							client.fabricGateway.fabricConfig.getRWSetEncoding(),
+							txObj
+						);
+						if (txid && txid !== '') {
+							const validation_codes =
+								block.metadata.metadata[
+								fabprotos.common.BlockMetadataIndex.TRANSACTIONS_FILTER
+								];
+							const val_code = validation_codes[txIndex];
+							validation_code = convertValidationCode(val_code);
+						}
+						let envelope_signature = txObj.signature;
+						if (envelope_signature !== undefined) {
+							envelope_signature = Buffer.from(
+								JSON.stringify(envelope_signature)
+							).toString('hex');
+						}
+						let payload_extension = txObj.payload.header.channel_header.extension;
+						if (payload_extension !== undefined) {
+							payload_extension = Buffer.from(JSON.stringify(payload_extension)).toString(
+								'hex'
+							);
+						}
+						let creator_nonce = txObj.payload.header.signature_header.nonce;
+						if (creator_nonce !== undefined) {
+							creator_nonce = Buffer.from(JSON.stringify(creator_nonce)).toString('hex');
+						}
+						/* eslint-disable */
+						const creator_id_bytes =
+							txObj.payload.header.signature_header.creator.id_bytes;
+						if (txObj.payload.data.actions !== undefined) {
+							chaincode =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.chaincode_id.name;
+							chaincodeID = new Uint8Array(
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload.extension
+							);
+							chaincodeversion =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.chaincode_id.version;
+							status =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.response.status;
+							mspId = txObj.payload.data.actions[0].payload.action.endorsements.map(
+								endorsement => endorsement.endorser.mspid
+							);
+							rwset =
+								txObj.payload.data.actions[0].payload.action.proposal_response_payload
+									.extension.results.ns_rwset;
+							readSet = rwset.map(rw => ({
+								chaincode: rw.namespace,
+								set: rw.rwset.reads
+							}));
+							writeSet = rwset.map(rw => ({
+								chaincode: rw.namespace,
+								set: rw.rwset.writes
+							}));
+							chaincode_proposal_input =
+								txObj.payload.data.actions[0].payload.chaincode_proposal_payload.input
+									.chaincode_spec.input.args;
+							if (chaincode_proposal_input !== undefined) {
+								let inputs = '';
+								for (const input of chaincode_proposal_input) {
+									inputs =
+										(inputs === '' ? inputs : `${inputs},`) +
+										Buffer.from(JSON.stringify(input)).toString('hex');
+								}
+								chaincode_proposal_input = inputs;
+							}
+							endorser_signature =
+								txObj.payload.data.actions[0].payload.action.endorsements[0].signature;
+							if (endorser_signature !== undefined) {
+								endorser_signature = Buffer.from(
+									JSON.stringify(endorser_signature)
+								).toString('hex');
+							}
+							payload_proposal_hash = txObj.payload.data.actions[0].payload.action.proposal_response_payload.proposal_hash.toString(
+								'hex'
+							);
+							endorser_id_bytes =
+								txObj.payload.data.actions[0].payload.action.endorsements[0].endorser
+									.IdBytes;
+						}
+
+						if (txObj.payload.header.channel_header.typeString === 'CONFIG') {
+							txid = sha.sha256(txStr);
+							readSet =
+								txObj.payload.data.last_update.payload?.data.config_update.read_set;
+							writeSet =
+								txObj.payload.data.last_update.payload?.data.config_update.write_set;
+						}
+
+						const read_set = JSON.stringify(readSet, null, 2);
+						const write_set = JSON.stringify(writeSet, null, 2);
+
+						const chaincode_id = String.fromCharCode.apply(null, chaincodeID);
+
+						/* eslint-enable */
+						const transaction_row = {
+							blockid: block.header.number.toString(),
+							txhash: txid,
+							createdt: txObj.payload.header.channel_header.timestamp,
+							chaincodename: chaincode,
+							chaincode_id,
+							status,
+							creator_msp_id: txObj.payload.header.signature_header.creator.mspid,
+							endorser_msp_id: mspId,
+							type: txObj.payload.header.channel_header.typeString,
+							read_set,
+							write_set,
+							channel_genesis_hash,
+							validation_code,
+							envelope_signature,
+							payload_extension,
+							creator_nonce,
+							chaincode_proposal_input,
+							endorser_signature,
+							creator_id_bytes,
+							payload_proposal_hash,
+							endorser_id_bytes
+						};
+
+						txnList.push(transaction_row);
+						logger.debug('Txn_row data inserted', transaction_row);
+					}
+					blockList.push(txnList);
+					logger.debug("Txn_list data inserted");
+				}
+			} catch {
+				logger.error(`Failed to process Block # ${result}`);
+			}
+		}
+		return blockList;
+		} else {
+		logger.debug('Missing blocks not found for %s', channel_name);
+		}
+	}
 }
 // Transaction validation code
 export function convertValidationCode(code) {

@@ -244,10 +244,14 @@ export async function platformroutes(
 	 */
 	router.get('/fetchDataByTxnId/:channel_genesis_hash/:txnId', (req, res) => {
 		const txnId = req.params.txnId;
+		let msg = true;
+		if(txnId.length < 64){
+			msg = false;
+		}
 		const channel_genesis_hash = req.params.channel_genesis_hash;
 		proxy.fetchDataByTxnId(req.network, channel_genesis_hash, txnId).then((data: any) => {
 			if (data != null) {
-				res.send({ status: 200, data: data });
+				res.send({ status: 200, data: data, msg: msg});
 			}
 			else{
 				res.send({ status: 404, data: "Transaction not found" });
